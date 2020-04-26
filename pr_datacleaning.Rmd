@@ -1,0 +1,413 @@
+---
+title: "PR Representation Data Cleaning"
+author: "Brian Kim"
+date: "21/04/2020"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+# Change the system set locale to Korean to understand the party names on R and export it properly on CSV
+Sys.setlocale("LC_ALL","Korean")
+
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(readxl)
+library(janitor)
+library(gt)
+library(rvest)
+library(forcats)
+library(stringr)
+library(magrittr)
+library(reprex)
+library(gganimate)
+library(magick)
+# library(transformr)
+
+# used devtools::install_github("thomasp85/transformr") to install transformr package
+
+```
+
+
+```{r Pulling PR, echo = FALSE}
+
+# read in the excel file, proportional Excel sheet
+
+PR <- read_excel("raw-data/na_elections_1988-2016.xlsx", sheet = "PR",
+                 col_types = "list") %>%
+  clean_names()
+
+
+```
+
+```{r Cleaning up PR, echo = FALSE}
+
+
+# purpose of cleaning up PR: 
+# to remove unnecessary PR candidate information 
+# only to get nationwide vote share
+
+# dae = the nth parliamentary election
+# 13th is 1988
+# election every 4 years
+
+# change dae into year, but first make column dae numeric
+
+PR$dae <- as.numeric(PR$dae)
+
+# couldn't figure out how to do function, so do it manually
+
+PR$year <- ifelse(PR$dae == 13, 1988, PR$dae) %>%
+  ifelse(PR$dae == 14, 1992, .) %>%
+  ifelse(PR$dae == 15, 1996, .) %>%
+  ifelse(PR$dae == 16, 2000, .) %>%
+  ifelse(PR$dae == 17, 2004, .) %>%
+  ifelse(PR$dae == 18, 2008, .) %>%
+  ifelse(PR$dae == 19, 2012, .) %>%
+  ifelse(PR$dae == 20, 2016, .)
+
+
+# create PR vote share per party
+# note: modern PR vote that reflects nationwide pct starts with 1996 election
+# aka dae = 15
+
+# make pvotes and prvotes numeric columns
+PR$pvotes <- as.numeric(PR$pvotes)
+PR$prvotes <- as.numeric(PR$prvotes)
+
+# make PR$partyname character columns
+PR$partyname <- as.character(PR$partyname)
+
+
+# make prvoteshare column
+
+PR$prvoteshare = ((PR$pvotes/PR$prvotes) * 100)
+
+
+# create condensed PR dataset that only has year, dae, prvoteshare, 
+# partyname, pvotes, prvotes, etc.
+
+PR_condensed <- PR %>%
+  as_tibble() %>%
+  select(dae, year, partyname, pvotes, prvotes, prvoteshare)
+
+# PR_condensed <- data.frame(PR$dae, PR$year, PR$partyname, PR$pvotes,  
+#                        PR$prvotes, PR$prvoteshare)
+
+# # drop PR. in names of columns
+# names(PR_condensed) <- substring(names(PR_condensed), 4)
+
+# keep distinct rows, based on pvotes
+PR_condensed <- PR_condensed %>%
+  distinct() %>%
+  drop_na(pvotes)
+
+```
+
+```{r Adjust Vote Share, echo = FALSE}
+
+
+# vote share doesn't add to 100 pct because other minor parties,
+# but parties in dataset the only ones that got PR based seats
+# so make adjusted vote share column
+
+
+PR_yearvoteshare <- PR_condensed %>%
+  group_by(year) %>%
+  summarise(pct_total = sum(prvoteshare))
+
+# add pct_total column to the condensed dataset
+
+PR_condensed$yearvoteshare <- ifelse(PR_condensed$year == 1988, 
+                                     PR_yearvoteshare$pct_total[[1]], NA) %>%
+  ifelse(PR_condensed$year == 1992, PR_yearvoteshare$pct_total[[2]], .) %>%
+  ifelse(PR_condensed$year == 1996, PR_yearvoteshare$pct_total[[3]], .) %>%
+  ifelse(PR_condensed$year == 2000, PR_yearvoteshare$pct_total[[4]], .) %>%
+  ifelse(PR_condensed$year == 2004, PR_yearvoteshare$pct_total[[5]], .) %>%
+  ifelse(PR_condensed$year == 2008, PR_yearvoteshare$pct_total[[6]], .) %>%
+  ifelse(PR_condensed$year == 2012, PR_yearvoteshare$pct_total[[7]], .) %>%
+  ifelse(PR_condensed$year == 2016, PR_yearvoteshare$pct_total[[8]], .)
+
+# add adjusted vote share for parties now
+# this accounts for vote share amongst qualified parties that got 
+# PR seats
+
+PR_condensed$partyadjvoteshare = ((PR_condensed$prvoteshare)/
+                                    (PR_condensed$yearvoteshare)) * 100
+
+
+
+
+
+
+```
+
+```{r Change to Two Parties, echo = FALSE}
+
+# PR_condensed <- read.csv("raw-data/PRcondensed.csv") %>%
+#   clean_names()
+
+write_utf8 <- function(text, f = tempfile()) {
+  
+  # step 1: ensure our text is utf8 encoded
+  utf8 <- enc2utf8(text)
+  
+  # step 2: create a connection with 'native' encoding
+  # this signals to R that translation before writing
+  # to the connection should be skipped
+  con <- file(f, open = "w+", encoding = "native.enc")
+  
+  # step 3: write to the connection with 'useBytes = TRUE',
+  # telling R to skip translation to the native encoding
+  writeLines(utf8, con = con, useBytes = TRUE)
+  
+  # close our connection
+  close(con)
+  
+  # read back from the file just to confirm
+  # everything looks as expected
+  readLines(f, encoding = "UTF-8")
+  
+}
+
+
+
+# code them as conservative or not
+
+# https://stackoverflow.com/questions/33644860/korean-encoding-issues-in-in-r
+
+# first, change the encoding 
+x1 <- "민주정의당"
+x2 <- "신민주공화당"
+x3 <- "민주자유당"
+x4 <- "통일국민당"
+x5 <- "신한국당"
+x6 <- "자유민주연합"
+x7 <- "한나라당"
+x8 <- "신한국당"
+x9 <- "새누리당"
+x10 <- "자유선진당"
+x11 <- "친박연대"
+x12 <- "창조한국당"
+# 
+x1 <- write_utf8(x1)
+
+# Encoding(x1) <- "UTF-8"
+# Encoding(x2) <- "UTF-8"
+# Encoding(x3) <- "UTF-8"
+# Encoding(x4) <- "UTF-8"
+# Encoding(x5) <- "UTF-8"
+# Encoding(x6) <- "UTF-8"
+
+#   
+# parse_character(x1, locale = locale(encoding = "UTF8"))
+# parse_character(x2, locale = locale(encoding = "UTF8"))
+# parse_character(x3, locale = locale(encoding = "UTF8"))
+# parse_character(x4, locale = locale(encoding = "UTF8"))
+# parse_character(x5, locale = locale(encoding = "UTF8"))
+# parse_character(x6, locale = locale(encoding = "UTF8"))
+# parse_character(x7, locale = locale(encoding = "UTF8"))
+# parse_character(x8, locale = locale(encoding = "UTF8"))
+# parse_character(x9, locale = locale(encoding = "UTF8"))
+# parse_character(x10, locale = locale(encoding = "UTF8"))
+# parse_character(x11, locale = locale(encoding = "UTF8"))
+# parse_character(x12, locale = locale(encoding = "UTF8"))
+# 
+party <- c(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12)
+
+party2 <- as.data.frame(party)
+# 
+# write_csv(party2, "raw-data/party.csv")
+
+PR_englishnamechanged <- PR_condensed %>%
+  mutate(englishpartyname = ifelse(
+    partyname == x1, "democracyjustice", 0) %>%
+      ifelse(partyname == x2, "newdemocracy", .) %>%
+      ifelse(partyname == x3, "democracyfreedom", .) %>%
+      ifelse(partyname == x4, "unifiedpeople", .) %>%
+      ifelse(partyname == x5, "newkorea", .) %>%
+      ifelse(partyname == x6, "freedomdemocracyteam", .) %>%
+      ifelse(partyname == x7, "onenation", .) %>%
+      ifelse(partyname == x8, "newkorea", .) %>%
+      ifelse(partyname == x9, "saenuri", .) %>%
+      ifelse(partyname == x10, "freedomadvance", .) %>%
+      ifelse(partyname == x11, "propark", .) %>%
+      ifelse(partyname == x12, "creativekorea", .)
+  )
+
+PR_englishnamechanged <- PR_englishnamechanged %>%
+  mutate(cons_or_not = ifelse(
+    englishpartyname == 0, 0, 1
+  ))
+
+PR_englishnamechanged <- as.data.frame(PR_englishnamechanged)
+
+
+write.csv(PR_englishnamechanged, "raw-data/PR_englishnamechanged.csv")
+          # , fileEncoding = "UTF-8")
+
+```
+
+```{r second code chunk, echo = FALSE}
+
+# PR_englishnamechanged <- PR_englishnamechanged %>%
+#   mutate(cons_or_not = ifelse(
+#     englishpartyname == "democracyjustice", 1, 0)%>%
+#       ifelse(englishpartyname == "newdemocracy", 1, .) %>%
+#       ifelse(englishpartyname == "democracyfreedom", 1, .) %>%
+#       ifelse(englishpartyname == "unifiedpeople", 1, .) %>%
+#       ifelse(englishpartyname == "newkorea", 1, .) %>%
+#       ifelse(englishpartyname == "freedomdemocracyteam", 1, .) %>%
+#       ifelse(englishpartyname == "onenation", 1, .) %>%
+#       ifelse(englishpartyname == "saenuri", 1, .) %>%
+#       ifelse(englishpartyname == "freedomadvance", 1, .) %>%
+#       ifelse(englishpartyname == "propark", 1, .) %>%
+#       ifelse(englishpartyname == "creativekorea", 1, .)
+#   )
+
+
+# PR_condensed$cons_or_not <- ifelse(
+#   (PR_condensed$partyname == "민주정의당") |
+#     (PR_condensed$partyname == "신민주공화당") |
+#     (PR_condensed$partyname == "민주자유당") |
+#     (PR_condensed$partyname == "통일국민당") |
+#     (PR_condensed$partyname == "신한국당") |
+#     (PR_condensed$partyname == "자유민주연합") |
+#     (PR_condensed$partyname == "한나라당") |
+#     (PR_condensed$partyname == "신한국당") |
+#     (PR_condensed$partyname == "새누리당") |
+#     (PR_condensed$partyname == "자유선진당") |
+#     (PR_condensed$partyname == "친박연대") |
+#     (PR_condensed$partyname == "창조한국당")
+#     , 1, 0)
+
+# PR_condensed$cons_or_not <- ifelse(
+#   party2$party[1] |
+#   party2$party[2] | 
+#   party2$party[3] |
+#   party2$party[4] |
+#   party2$party[5] |
+#   party2$party[6] |
+#   party2$party[7] |
+#   party2$party[8] |
+#   party2$party[9] |
+#   party2$party[10] |
+#   party2$party[11] |
+#   party2$party[12]
+#     , 1, 0)
+
+# PR_condensed$cons_or_not <- ifelse(
+#   (PR_condensed$partyname == x1) |
+#     (PR_condensed$partyname == x2) |
+#     (PR_condensed$partyname == x3) |
+#     (PR_condensed$partyname == x4) |
+#     (PR_condensed$partyname == x5) |
+#     (PR_condensed$partyname == x6) |
+#     (PR_condensed$partyname == x7) |
+#     (PR_condensed$partyname == x8) |
+#     (PR_condensed$partyname == x9) |
+#     (PR_condensed$partyname == x10) |
+#     (PR_condensed$partyname == x11) |
+#     (PR_condensed$partyname == x12)
+#     , 1, 0)
+
+
+# make two_party (ideology) PR dataset
+
+PR_twoparty <- PR_englishnamechanged %>%
+  select(dae, year, cons_or_not, partyadjvoteshare)
+  
+
+# PR_twoparty <- data.frame(PR_condensed$dae,
+#                           PR_condensed$year,
+#                           PR_condensed$cons_or_not, 
+#                           PR_condensed$partyadjvoteshare)
+
+# drop prefixes in names of columns
+
+# names(PR_twoparty) <- substring(names(PR_twoparty), 14)
+
+write.csv(PR_twoparty, "raw-data/PRtwoparty.csv")
+
+
+# add voteshare by ideology column
+
+PR_twopartyvoteshare <- PR_twoparty %>%
+  group_by(year, cons_or_not) %>%
+  summarise(pct_total = sum(partyadjvoteshare))
+
+# make sure that the pct_total column in twopartyvoteshare is numeric
+PR_twopartyvoteshare$pct_total <- as.numeric(PR_twopartyvoteshare$pct_total)
+
+```
+
+```{r Adding PCT Total to Two Party, echo = FALSE}
+# add pct_total column to the twoparty dataset
+
+PR_twoparty$ideavoteshare <- ifelse(PR_twoparty$year == 1988 &
+                                      PR_twoparty$cons_or_not == 1,
+                                     PR_twopartyvoteshare$pct_total[[2]],
+                                    NA) %>%
+  ifelse(PR_twoparty$year == 1988 & PR_twoparty$cons_or_not == 0,
+         PR_twopartyvoteshare$pct_total[1], .) %>%
+  ifelse(PR_twoparty$year == 1992 & PR_twoparty$cons_or_not == 1,
+         PR_twopartyvoteshare$pct_total[4], .) %>%
+  ifelse(PR_twoparty$year == 1992 & PR_twoparty$cons_or_not == 0,
+         PR_twopartyvoteshare$pct_total[3], .) %>%
+  ifelse(PR_twoparty$year == 1996 & PR_twoparty$cons_or_not == 1,
+         PR_twopartyvoteshare$pct_total[6], .) %>%
+  ifelse(PR_twoparty$year == 1996 & PR_twoparty$cons_or_not == 0,
+         PR_twopartyvoteshare$pct_total[5], .) %>%
+  ifelse(PR_twoparty$year == 2000 & PR_twoparty$cons_or_not == 1,
+         PR_twopartyvoteshare$pct_total[8], .) %>%
+  ifelse(PR_twoparty$year == 2000 & PR_twoparty$cons_or_not == 0,
+         PR_twopartyvoteshare$pct_total[7], .) %>%
+  ifelse(PR_twoparty$year == 2004 & PR_twoparty$cons_or_not == 1,
+         PR_twopartyvoteshare$pct_total[10], .) %>%
+  ifelse(PR_twoparty$year == 2004 & PR_twoparty$cons_or_not == 0,
+         PR_twopartyvoteshare$pct_total[9], .) %>%
+  ifelse(PR_twoparty$year == 2008 & PR_twoparty$cons_or_not == 1,
+         PR_twopartyvoteshare$pct_total[12], .) %>%
+  ifelse(PR_twoparty$year == 2008 & PR_twoparty$cons_or_not == 0,
+         PR_twopartyvoteshare$pct_total[11], .) %>%
+  ifelse(PR_twoparty$year == 2012 & PR_twoparty$cons_or_not == 1,
+         PR_twopartyvoteshare$pct_total[14], .) %>%
+  ifelse(PR_twoparty$year == 2012 & PR_twoparty$cons_or_not == 0,
+         PR_twopartyvoteshare$pct_total[13], .) %>%
+  ifelse(PR_twoparty$year == 2016 & PR_twoparty$cons_or_not == 1,
+         PR_twopartyvoteshare$pct_total[16], .) %>%
+  ifelse(PR_twoparty$year == 2016 & PR_twoparty$cons_or_not == 0,
+         PR_twopartyvoteshare$pct_total[15], .)
+
+# some kind of regression model
+#coefficient model or coefficient plot
+# have some model where you have outcome of some variable and couple of controls, if it's linear model and have binary code 
+#look at data and look at it, have a separate page
+# about page (yourself), what kinds of questions ou want to answer, some type of interactive graph, separate tab for model page where you do some statistics and justify why you picked that particular model
+# present what they have, based off feedback, amend graph and add extra explanations
+
+# change the cons_or_not as factors
+PR_twopartyvoteshare$cons_or_not <- as.factor(PR_twopartyvoteshare$cons_or_not)
+
+# relabel the cons_or_not 
+
+levels(PR_twopartyvoteshare$cons_or_not) <- c("Liberal/Progressives", "Conservatives")
+
+
+```
+
+```{r Saving This as Separate Data, echo = FALSE}
+
+# Save this cleaned dataset separately
+
+write.csv(PR_twopartyvoteshare, "raw-data/PRtwopartyvoteshare.csv")
+
+# save the dataset separately as well
+# save(PR_twopartyvoteshare, file = "Korean_Parliament_Analysis/data_files/PR_twopartyvoteshare.Rdata")
+
+# Constructing graph will be in a separate RMD file. 
+
+```

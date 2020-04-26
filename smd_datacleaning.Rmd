@@ -1,0 +1,215 @@
+---
+title: "Single Member District Representation"
+author: "Brian Kim"
+date: "25/04/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+# Change the system set locale to Korean to understand the party names on R and export it properly on CSV
+
+Sys.setlocale("LC_ALL","Korean")
+
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(readxl)
+library(janitor)
+library(gt)
+library(rvest)
+library(forcats)
+library(stringr)
+library(magrittr)
+library(reprex)
+library(gganimate)
+library(magick)
+# library(transformr)
+
+# used devtools::install_github("thomasp85/transformr") to install transformr package
+
+```
+
+```{r Loading SMD, include = FALSE}
+
+# Code chunk set to include=FALSE to avoid the warnings that read_excel produces
+# when setting col_types as "guess" to make sure that columns are automatically
+# sorted as numerical or character. Warning set because "expecting numeric" in
+# different observations, but want to make sure the columns of interest are
+# properly transformed without having to do much work later. Originally chose
+# col_ty[es as "list", but that presented challenges in changing different
+# columns into factors and other types.
+
+# load the SMD district sheet from the election data file
+
+SMD <- read_excel("raw-data/na_elections_1988-2016.xlsx", sheet = "SMD",
+                 col_types = "guess") %>%
+  clean_names()
+
+```
+
+```{r Collapse for Party Region and other variables, echo = FALSE}
+
+# make a condensed SMD dataset
+
+SMD_condensed<- SMD %>%
+  as_tibble() %>%
+  select(dae, year, region, distname, party, gender_29, vshare)
+
+```
+
+```{r Find Distinct Party Names, echo = FALSE}
+
+# make a party dataset to find unique party observations
+# first, change the party column into a factor
+
+SMD$party <- as.factor(SMD$party)
+
+party <- SMD %>%
+  distinct(party) %>%
+  select(party)
+
+# use the codes from PR_datacleaning to sort out conservative and liberal camps
+# for the purpose of this study, independents will be excluded from the study (very minor)
+
+# first, list out some conservative parties from the PR list
+
+x1 <- "민주정의당"
+x2 <- "신민주공화당"
+x3 <- "민주자유당"
+x4 <- "통일국민당"
+x5 <- "신한국당"
+x6 <- "자유민주연합"
+x7 <- "한나라당"
+x8 <- "신한국당"
+x9 <- "새누리당"
+x10 <- "자유선진당"
+x11 <- "친박연대"
+x12 <- "창조한국당"
+
+# identify other parties that may be conservative
+
+y1 <- "국민당" #koreanpeopleparty
+y2 <- "무소속" #independent, will make it null
+y3 <- "자민련" #unitedliberaldemocrats
+y4 <- "한국신당" #hopefulnewkorea
+y5 <- "민주공화당" #democraticrepublican
+y6 <- "국민통합21" #peopleunified21
+y7 <- "하나로국민연합" #onepeopleunity
+y8 <- "통합21" #peopleunified21
+y9 <- "국민중심당" #peoplecenter
+y10 <- "자유평화당" #freedompeace
+y11 <- "국민행복당" #peoplehappy
+y12 <- "국민생각" #koreavision
+y13 <- "미래연합" #futureunity
+y14 <- "대한국당" #greatkorea
+y15 <- "친박연합" #proparkteam
+y16 <- "통일한국당" #unifykorea
+y17 <- "친반통일당" #probanunification
+y18 <- "기독자유당" #christianfreedom
+
+# add on these new english names directly to the SMD_condensed data
+
+SMD_condensed <- SMD_condensed %>%
+  mutate(englishpartyname = ifelse(
+    party == y2, NA, 0) %>%
+      ifelse(party == x1, "democracyjustice", .) %>%
+      ifelse(party == x2, "newdemocracy", .) %>%
+      ifelse(party == x3, "democracyfreedom", .) %>%
+      ifelse(party == x4, "unifiedpeople", .) %>%
+      ifelse(party == x5, "newkorea", .) %>%
+      ifelse(party == x6, "freedomdemocracyteam", .) %>%
+      ifelse(party == x7, "onenation", .) %>%
+      ifelse(party == x8, "newkorea", .) %>%
+      ifelse(party == x9, "saenuri", .) %>%
+      ifelse(party == x10, "freedomadvance", .) %>%
+      ifelse(party == x11, "propark", .) %>%
+      ifelse(party == x12, "creativekorea", .) %>%
+      ifelse(party == y1, "koreanpeopleparty", .) %>%
+      ifelse(party == y3, "unitedliberaldemocrats", .) %>%
+      ifelse(party == y4, "hopefulnewkorea", .) %>%
+      ifelse(party == y5, "democraticrepublican", .) %>%
+      ifelse(party == y6, "peopleunified21", .) %>%
+      ifelse(party == y7, "onepeopleunity", .) %>%
+      ifelse(party == y8, "peopleunified21", .) %>%
+      ifelse(party == y9, "peoplecenter", .) %>%
+      ifelse(party == y10, "freedompeace", .) %>%
+      ifelse(party == y11, "peoplehappy", .) %>%
+      ifelse(party == y12, "koreavision", .) %>%
+      ifelse(party == y13, "futureunity", .) %>%
+      ifelse(party == y14, "greatkorea", .) %>%
+      ifelse(party == y15, "proparkteam", .) %>%
+      ifelse(party == y16, "unifykorea", .) %>%
+      ifelse(party == y17, "probanunification", .) %>%
+      ifelse(party == y18, "christianfreedom", .)
+  )
+
+
+
+# add on cons_or_not variable 
+
+SMD_condensed$cons_or_not = ifelse(SMD_condensed$englishpartyname == 0, 0, 1) %>%
+      ifelse(is.na(SMD_condensed$englishpartyname), 2, .)
+
+# 0 on cons_or_not is liberal/pro-democracy, 1 is conservative, 2 is independent
+
+```
+
+```{r Condense for Overall Party Share by District, echo = FALSE}
+
+# create partyshare dataset for each district in each region, summing the
+# voteshare
+
+SMD_partyshare <- SMD_condensed %>%
+  select(year, region, distname, cons_or_not, vshare)
+
+
+# group by to create voteshare variable
+
+SMD_partyshare <- SMD_partyshare %>%
+  group_by(year, region, distname, cons_or_not) %>%
+  summarise(totalvoteshare = sum(vshare)) %>%
+  filter(!is.na(region)) %>%
+  # filter for uncontested regions / no candidates
+  filter(!is.na(totalvoteshare))
+
+
+# make the cons_or_not a factor 
+
+SMD_partyshare$cons_or_not <- as.factor(SMD_partyshare$cons_or_not)
+
+# rename the levels of the factors
+
+# levels(SMD_partyshare$cons_or_not) <- c("Liberal/Progressives", "Conservatives", "Independents")
+
+# group by region to create an average voteshare for different ideologies
+
+SMD_partyshare <- SMD_partyshare %>%
+  group_by(year, region, cons_or_not) %>%
+  summarise(averagevoteshare = mean(totalvoteshare)) %>%
+  mutate(averagevoteshare = averagevoteshare * 100)
+
+# make a nationwide SMD_partyshare voteshare 
+
+SMD_nationwidepartyshare <- SMD_partyshare %>%
+  group_by(year, cons_or_not) %>%
+  summarise(nationwidevote = mean(averagevoteshare))
+
+
+```
+
+```{r Save the Dataset, echo = FALSE}
+
+# export this separate dataset
+
+write.csv(SMD_partyshare, "raw-data/SMD_partyshare.csv")
+
+# save(SMD_partyshare, file = "Korean_Parliament_Analysis/data_files/SMD_partyshare.Rdata")
+
+write.csv(SMD_nationwidepartyshare, "raw-data/SMD_nationwidepartyshare.csv")
+
+# save(SMD_nationwidepartyshare, file = "Korean_Parliament_Analysis/data_files/SMD_nationwideparty.Rdata")
+
+
+```
