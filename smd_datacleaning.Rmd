@@ -25,6 +25,7 @@ library(magrittr)
 library(reprex)
 library(gganimate)
 library(magick)
+library(modelr)
 # library(transformr)
 
 # used devtools::install_github("thomasp85/transformr") to install transformr package
@@ -199,6 +200,222 @@ SMD_nationwidepartyshare <- SMD_partyshare %>%
 
 ```
 
+```{r read in Mun_ch dataset, include = FALSE}
+
+
+# Code chunk set to include=FALSE to avoid the warnings that read_excel produces
+# when setting col_types as "guess" to make sure that columns are automatically
+# sorted as numerical or character. Warning set because "expecting numeric" in
+# different observations, but want to make sure the columns of interest are
+# properly transformed without having to do much work later. Originally chose
+# col_ty[es as "list", but that presented challenges in changing different
+# columns into factors and other types.
+
+# load the Mun Ch district sheet from the election data file
+
+mun_ch <- read_excel("raw-data/na_elections_1988-2016.xlsx", sheet = "Mun ch",
+                 col_types = "guess") %>%
+  clean_names()
+
+```
+
+```{r Mutate mun_ch columns, echo = FALSE}
+
+# make a condensed dataset for mun_ch
+
+mun_ch_condensed <- mun_ch %>%
+  select(year, shido, munname, young, old, area_land)
+
+# change shido to region dataset to match with SMD files
+
+mun_ch_condensed <- mun_ch_condensed %>%
+  mutate(region = ifelse(
+    shido == "Ulsan", "Ulsan", NA) %>%
+      ifelse(shido == "Seoul", "Seoul", .) %>%
+      ifelse(shido == "Sejong-si", "Sejong", .) %>%
+      ifelse(shido == "Jeollanam-do", "Jeonnam", .) %>%
+      ifelse(shido == "Jeollabuk-do", "Jeonbuk", .) %>%
+      ifelse(shido == "Jeju-do", "Jeju", .) %>%
+      ifelse(shido == "Incheon", "Incheon", .) %>%
+      ifelse(shido == "Gyeongsangnam-do", "Gyeongnam", .) %>%
+      ifelse(shido == "Gyeonggi-do", "Gyeonggi", .) %>%
+      ifelse(shido == "Gyeongsangbuk-do", "Gyeongbuk", .) %>%
+      ifelse(shido == "Gwangju", "Gwangju", .) %>%
+      ifelse(shido == "Gangwon-do", "Gangwon", .) %>%
+      ifelse(shido == "Daejeon", "Daejeon", .) %>%
+      ifelse(shido == "Daegu", "Daegu", .) %>%
+      ifelse(shido == "Chungcheongnam-do", "Chungnam", .) %>%
+      ifelse(shido == "Chungcheongbuk-do", "Chungbuk", .) %>%
+      ifelse(shido == "Busan", "Busan", .))
+
+# select for region variable instead of shido
+
+mun_ch_condensed <- mun_ch_condensed %>%
+  select(year, region, munname, young, old, area_land)
+
+# # drop all NA observations
+# 
+# mun_ch_condensed <- mun_ch_condensed %>%
+#   filter(!is.na(young)) %>%
+#   filter(!is.na(old)) %>%
+#   filter(!is.na(area_land))
+
+# NA in area_land seems to be data that can be filled with the following year's data
+# try to make a function that takes on the next observation
+
+# mun_ch_condensed <- mun_ch_condensed %>%
+#   mutate(area_landlead = lead(area_land))
+# 
+# # make a modified area_land to fill NA observation with same from lead
+# 
+# mun_ch_condensed <- mun_ch_condensed %>%
+#   mutate(modified_arealand = ifelse(
+#     !is.na(area_land), area_land, NA) %>%
+#       ifelse(is.na(area_land), area_landlead, .)
+#   )
+# 
+# # account for the na's in the new modified landlead
+# 
+# mun_ch_condensed <- mun_ch_condensed %>%
+#   mutate(lag_modifiedarea = lag(modified_arealand)) %>%
+#   mutate(newmodified_arealand = ifelse(
+#     !is.na(modified_arealand), modified_arealand, NA) %>%
+#       ifelse(is.na(modified_arealand), lag_modifiedarea, .))
+# 
+# # re-select for the modified columns
+# 
+# mun_ch_condensed <- mun_ch_condensed %>%
+#   select(year, region, munname, young, old, newmodified_arealand)
+# # 
+# # use the same NA mechanism for young
+# 
+# mun_ch_condensed <- mun_ch_condensed %>%
+#   mutate(young_lead = lead(young)) %>%
+#   mutate(young_lag = lag(young))
+# 
+# # use young_lead first to make a modified young
+# 
+# mun_ch_condensed <- mun_ch_condensed %>%
+#   mutate(modified_young = ifelse(
+#     !is.na(young), young, NA) %>%
+#       ifelse(is.na(young), young_lead, .)
+#   )
+
+# group by region to create average young, old, and modified_arealand population
+
+mun_ch_newdata <- mun_ch_condensed %>%
+  group_by(region, munname) %>%
+  mutate(averageland = mean(area_land, na.rm = TRUE))
+
+mun_ch_newdata <- mun_ch_newdata %>%
+  group_by(year, region) %>%
+  mutate(totalyoungperyear = sum(young, na.rm = TRUE)) %>%
+  mutate(totaloldperyear = sum(old, na.rm = TRUE)) %>%
+  mutate(totalland = sum(averageland))
+
+# select for these new calculations
+
+mun_ch_analysis <- mun_ch_newdata %>%
+  select(year, region, totalyoungperyear, totaloldperyear, totalland) %>%
+  distinct()
+  
+# change NaN observations in totalland
+
+mun_ch_analysis <- mun_ch_analysis %>%
+  filter(!is.nan(totalland))
+
+# summarize total old population
+
+mun_ch_old <- mun_ch_analysis %>%
+  group_by(year) %>%
+  summarise(totaloldpop = sum(totaloldperyear))
+
+# add the old population to the nationwide smd vote share table
+
+SMD_nationwidepartyshare <- SMD_nationwidepartyshare %>%
+  mutate(oldpopulation = ifelse(
+    year == 1988, mun_ch_old$totaloldpop[1], NA) %>%
+      ifelse(year == 1992, mun_ch_old$totaloldpop[2], .) %>%
+      ifelse(year == 1996, mun_ch_old$totaloldpop[3], .) %>%
+      ifelse(year == 2000, mun_ch_old$totaloldpop[4], .) %>%
+      ifelse(year == 2004, mun_ch_old$totaloldpop[5], .) %>%
+      ifelse(year == 2008, mun_ch_old$totaloldpop[6], .) %>%
+      ifelse(year == 2012, mun_ch_old$totaloldpop[7], .)
+  )
+
+
+```
+
+```{r Statistical Regression for Old Population, echo = FALSE}
+
+# run statistical regression on old population in new SMD_nationwidepartyshare
+
+
+regression_model <- lm(nationwidevote ~ 
+                       cons_or_not*year*oldpopulation, data = SMD_nationwidepartyshare)
+
+# put the fitted values of the regression model in the dataset
+
+
+
+
+
+
+
+```
+
+```{r Join Datasets, echo = FALSE}
+
+# # do a full join to combine data
+# 
+# fullyjoinedtable <- full_join(SMD_partyshare, mun_ch_analysis, by = c("year", "region"))
+# 
+# # filter for only 2016 observations
+# 
+# fully2016 <- fullyjoinedtable %>%
+#   filter(year == 2016)
+# 
+# # make a 2020 dataframe
+# 
+# twenty20 <- data.frame("year" = rep(2020, times = 50))
+# twenty20$region <- fully2016$region
+# twenty20$cons_or_not <- fully2016$cons_or_not
+# twenty20$averagevoteshare <- rep(NA, times = 50)
+# twenty20$totalyoungperyear <- rep(NA, times = 50)
+# twenty20$totaloldperyear <- rep(NA, times = 50)
+# twenty20$totalland <- rep(NA, times = 50)
+# 
+# # change the last four columns as numeric
+# twenty20$averagevoteshare <- as.numeric(twenty20$averagevoteshare)
+# twenty20$totaloldperyear <- as.numeric(twenty20$totaloldperyear)
+# twenty20$totalyoungperyear <- as.numeric(twenty20$totalyoungperyear)
+# twenty20$totalland <- as.numeric(twenty20$totalland)
+# 
+# # bind the rows twenty20 and fullyjoinedtable
+# 
+# fullyjoinedtable <- bind_rows(fullyjoinedtable, twenty20)
+# 
+# # do a regression
+# 
+# regression_model <- lm(averagevoteshare ~ 
+#                          cons_or_not*region*year*totalyoungperyear, data = fullyjoinedtable)
+# 
+# # show the dataset 
+# 
+# regresion_table <- regression_model[["model"]]
+# 
+# 
+# # adding predictions to fullyjoinedtable 
+# 
+# withpredictions <- add_predictions(fullyjoinedtable, regression_model, var = "pred", type = NULL)
+# 
+# withpredictions$fitted <- fitted(regression_model, na.action = na.exclude)
+# 
+# # attach the fitted value to the fullyjoinedtable
+
+
+```
+
 ```{r Save the Dataset, echo = FALSE}
 
 # export this separate dataset
@@ -209,7 +426,10 @@ write.csv(SMD_partyshare, "raw-data/SMD_partyshare.csv")
 
 write.csv(SMD_nationwidepartyshare, "raw-data/SMD_nationwidepartyshare.csv")
 
-# save(SMD_nationwidepartyshare, file = "Korean_Parliament_Analysis/data_files/SMD_nationwideparty.Rdata")
+# save(SMD_nationwidepartyshare, file = "SMD_nationwideparty.Rdata")
+
 
 
 ```
+
+
