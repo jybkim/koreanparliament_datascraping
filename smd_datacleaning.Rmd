@@ -198,6 +198,8 @@ SMD_nationwidepartyshare <- SMD_partyshare %>%
   summarise(nationwidevote = mean(averagevoteshare))
 
 
+
+
 ```
 
 ```{r read in Mun_ch dataset, include = FALSE}
