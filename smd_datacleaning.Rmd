@@ -255,6 +255,19 @@ mun_ch_condensed <- mun_ch_condensed %>%
 mun_ch_condensed <- mun_ch_condensed %>%
   select(year, region, munname, young, old, area_land)
 
+# make dataset for old people
+
+munchold <- mun_ch_condensed %>%
+  group_by(year, region) %>%
+  summarise(total_old = sum(old, na.rm = TRUE))
+
+# join the datasets 
+
+together <- inner_join(munchold, SMD_partyshare, by = c("year", "region"))
+
+write.csv(together, "raw-data/SMD_oldandpartyshare.csv")
+
+
 # # drop all NA observations
 # 
 # mun_ch_condensed <- mun_ch_condensed %>%
