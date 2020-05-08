@@ -255,11 +255,32 @@ mun_ch_condensed <- mun_ch_condensed %>%
 mun_ch_condensed <- mun_ch_condensed %>%
   select(year, region, munname, young, old, area_land)
 
+# make dataset for total population
+# first, make the total population variable
+
+mun_ch_condensed <- mun_ch_condensed %>%
+  mutate(total_population = young + old)
+
 # make dataset for old people
 
 munchold <- mun_ch_condensed %>%
   group_by(year, region) %>%
   summarise(total_old = sum(old, na.rm = TRUE))
+
+# make dataset for total population 
+
+munchtotal <- mun_ch_condensed %>%
+  group_by(year, region) %>%
+  summarise(total_pop = sum(total_population, na.rm = TRUE))
+
+# make a new column to munchold linking the munchtotal total_pop column
+
+munchold$total_pop <- munchtotal$total_pop
+
+# make an old population share variable
+
+munchold <- munchold %>%
+  mutate(oldshare = ((total_old/total_pop)*100))
 
 # join the datasets 
 
