@@ -12,6 +12,8 @@ knitr::opts_chunk$set(echo = FALSE)
 
 Sys.setlocale("LC_ALL","Korean")
 
+# load the libraries
+
 library(dplyr)
 library(ggplot2)
 library(tidyverse)
@@ -26,9 +28,7 @@ library(reprex)
 library(gganimate)
 library(magick)
 library(modelr)
-# library(transformr)
 
-# used devtools::install_github("thomasp85/transformr") to install transformr package
 
 ```
 
@@ -265,56 +265,13 @@ munchold <- mun_ch_condensed %>%
 
 together <- inner_join(munchold, SMD_partyshare, by = c("year", "region"))
 
+# Save as csv and RData
+
 write.csv(together, "raw-data/SMD_oldandpartyshare.csv")
 
+save(together, file = "raw-data/oldandvoteshare.Rdata")
 
-# # drop all NA observations
-# 
-# mun_ch_condensed <- mun_ch_condensed %>%
-#   filter(!is.na(young)) %>%
-#   filter(!is.na(old)) %>%
-#   filter(!is.na(area_land))
-
-# NA in area_land seems to be data that can be filled with the following year's data
-# try to make a function that takes on the next observation
-
-# mun_ch_condensed <- mun_ch_condensed %>%
-#   mutate(area_landlead = lead(area_land))
-# 
-# # make a modified area_land to fill NA observation with same from lead
-# 
-# mun_ch_condensed <- mun_ch_condensed %>%
-#   mutate(modified_arealand = ifelse(
-#     !is.na(area_land), area_land, NA) %>%
-#       ifelse(is.na(area_land), area_landlead, .)
-#   )
-# 
-# # account for the na's in the new modified landlead
-# 
-# mun_ch_condensed <- mun_ch_condensed %>%
-#   mutate(lag_modifiedarea = lag(modified_arealand)) %>%
-#   mutate(newmodified_arealand = ifelse(
-#     !is.na(modified_arealand), modified_arealand, NA) %>%
-#       ifelse(is.na(modified_arealand), lag_modifiedarea, .))
-# 
-# # re-select for the modified columns
-# 
-# mun_ch_condensed <- mun_ch_condensed %>%
-#   select(year, region, munname, young, old, newmodified_arealand)
-# # 
-# # use the same NA mechanism for young
-# 
-# mun_ch_condensed <- mun_ch_condensed %>%
-#   mutate(young_lead = lead(young)) %>%
-#   mutate(young_lag = lag(young))
-# 
-# # use young_lead first to make a modified young
-# 
-# mun_ch_condensed <- mun_ch_condensed %>%
-#   mutate(modified_young = ifelse(
-#     !is.na(young), young, NA) %>%
-#       ifelse(is.na(young), young_lead, .)
-#   )
+# in case I want to do an analysis between area_land, young, and old...
 
 # group by region to create average young, old, and modified_arealand population
 
@@ -361,87 +318,18 @@ SMD_nationwidepartyshare <- SMD_nationwidepartyshare %>%
 
 ```
 
-```{r Statistical Regression for Old Population, echo = FALSE}
-
-# run statistical regression on old population in new SMD_nationwidepartyshare
-
-
-regression_model <- lm(nationwidevote ~ 
-                       cons_or_not*year*oldpopulation, data = SMD_nationwidepartyshare)
-
-# put the fitted values of the regression model in the dataset
-
-
-
-
-
-
-
-```
-
-```{r Join Datasets, echo = FALSE}
-
-# # do a full join to combine data
-# 
-# fullyjoinedtable <- full_join(SMD_partyshare, mun_ch_analysis, by = c("year", "region"))
-# 
-# # filter for only 2016 observations
-# 
-# fully2016 <- fullyjoinedtable %>%
-#   filter(year == 2016)
-# 
-# # make a 2020 dataframe
-# 
-# twenty20 <- data.frame("year" = rep(2020, times = 50))
-# twenty20$region <- fully2016$region
-# twenty20$cons_or_not <- fully2016$cons_or_not
-# twenty20$averagevoteshare <- rep(NA, times = 50)
-# twenty20$totalyoungperyear <- rep(NA, times = 50)
-# twenty20$totaloldperyear <- rep(NA, times = 50)
-# twenty20$totalland <- rep(NA, times = 50)
-# 
-# # change the last four columns as numeric
-# twenty20$averagevoteshare <- as.numeric(twenty20$averagevoteshare)
-# twenty20$totaloldperyear <- as.numeric(twenty20$totaloldperyear)
-# twenty20$totalyoungperyear <- as.numeric(twenty20$totalyoungperyear)
-# twenty20$totalland <- as.numeric(twenty20$totalland)
-# 
-# # bind the rows twenty20 and fullyjoinedtable
-# 
-# fullyjoinedtable <- bind_rows(fullyjoinedtable, twenty20)
-# 
-# # do a regression
-# 
-# regression_model <- lm(averagevoteshare ~ 
-#                          cons_or_not*region*year*totalyoungperyear, data = fullyjoinedtable)
-# 
-# # show the dataset 
-# 
-# regresion_table <- regression_model[["model"]]
-# 
-# 
-# # adding predictions to fullyjoinedtable 
-# 
-# withpredictions <- add_predictions(fullyjoinedtable, regression_model, var = "pred", type = NULL)
-# 
-# withpredictions$fitted <- fitted(regression_model, na.action = na.exclude)
-# 
-# # attach the fitted value to the fullyjoinedtable
-
-
-```
 
 ```{r Save the Dataset, echo = FALSE}
 
-# export this separate dataset
+# export this separate dataset as csv and Rdata
 
 write.csv(SMD_partyshare, "raw-data/SMD_partyshare.csv")
 
-# save(SMD_partyshare, file = "Korean_Parliament_Analysis/data_files/SMD_partyshare.Rdata")
+save(SMD_partyshare, file = "raw-data/SMD_partyshare.Rdata")
 
 write.csv(SMD_nationwidepartyshare, "raw-data/SMD_nationwidepartyshare.csv")
 
-# save(SMD_nationwidepartyshare, file = "SMD_nationwideparty.Rdata")
+save(SMD_nationwidepartyshare, file = "raw-data/SMD_nationwideparty.Rdata")
 
 
 

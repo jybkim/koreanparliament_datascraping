@@ -21,9 +21,7 @@ library(magrittr)
 library(reprex)
 library(gganimate)
 library(magick)
-# library(transformr)
 
-# used devtools::install_github("thomasp85/transformr") to install transformr package
 ```
 
 
@@ -39,6 +37,8 @@ PR_twopartyvoteshare <- read.csv("raw-data/PRtwopartyvoteshare.csv") %>%
 
 
 ```
+
+Graph of the PR will be shown in the Shiny webpage as differently; this RMD/HTML seeks to test out if the dataset is properly transcribed from Korean to English for smooth graphing functions. 
 
 ```{r Trying New Graph, echo = FALSE}
 
